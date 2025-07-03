@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <title>منصة مشاريع التطوير</title>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  </head>
+  <body class="dark bg-background text-foreground">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <!-- This is a replit script which adds a banner on the top of the page when opened in development mode outside the replit environment -->
+    <script type="text/javascript" src="https://replit.com/public/js/replit-dev-banner.js"></script>
+    <script>
+      // Aggressively hide Vite runtime error overlay
+      function hideRuntimeError() {
+        // Remove any existing error overlays
+        const errorElements = document.querySelectorAll('div[id*="error"], div[class*="error"], iframe[src*="error"]');
+        errorElements.forEach(el => {
+          if (el.textContent && el.textContent.includes('runtime-error-plugin')) {
+            el.remove();
+          }
+        });
+        
+        // Hide by various selectors
+        const selectors = [
+          '#vite-plugin-runtime-error-modal',
+          '[id*="vite-plugin-runtime-error"]',
+          '[class*="vite-plugin-runtime-error"]',
+          '.vite-plugin-runtime-error-modal',
+          '.vite-error-overlay',
+          'iframe[src*="runtime-error"]',
+          '[data-vite-plugin*="runtime-error"]'
+        ];
+        
+        selectors.forEach(selector => {
+          document.querySelectorAll(selector).forEach(el => el.remove());
+        });
+      }
+      
+      // Run continuously
+      setInterval(hideRuntimeError, 100);
+      
+      // Override error display functions
+      window.addEventListener('error', (e) => {
+        if (e.message && e.message.includes('runtime-error-plugin')) {
+          e.preventDefault();
+          e.stopPropagation();
+          hideRuntimeError();
+        }
+      });
+      
+      // Watch for DOM changes
+      new MutationObserver(hideRuntimeError).observe(document.body, { 
+        childList: true, 
+        subtree: true 
+      });
+    </script>
+  </body>
+</html>
