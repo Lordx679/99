@@ -1,111 +1,118 @@
-import {
-  pgTable,
-  text,
-  varchar,
-  timestamp,
-  jsonb,
-  index,
-  serial,
-  integer,
-  boolean,
-} from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
+import mongoose, { Schema, Document } from 'mongoose';
 import { z } from "zod";
-import { relations } from "drizzle-orm";
 
-// Session storage table.
-// (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
-export const sessions = pgTable(
-  "sessions",
-  {
-    sid: varchar("sid").primaryKey(),
-    sess: jsonb("sess").notNull(),
-    expire: timestamp("expire").notNull(),
-  },
-  (table) => [index("IDX_session_expire").on(table.expire)],
-);
+// User interface and schema
+export interface User extends Document {
+  _id: string;
+  id: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  profileImageUrl?: string;
+  isAdmin: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-// User storage table.
-// (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().notNull(),
-  email: varchar("email").unique(),
-  firstName: varchar("first_name"),
-  lastName: varchar("last_name"),
-  profileImageUrl: varchar("profile_image_url"),
-  isAdmin: boolean("is_admin").default(false).notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
+const userSchema = new Schema<User>({
+  id: { type: String, required: true, unique: true },
+  email: { type: String, unique: true, sparse: true },
+  firstName: String,
+  lastName: String,
+  profileImageUrl: String,
+  isAdmin: { type: Boolean, default: false },
+}, {
+  timestamps: true,
 });
 
-export const projects = pgTable("projects", {
-  id: serial("id").primaryKey(),
-  title: varchar("title", { length: 255 }).notNull(),
-  description: text("description").notNull(),
-  fullDescription: text("full_description"),
-  category: varchar("category", { length: 50 }).notNull(), // bots, servers, tools, templates, designers
-  githubUrl: varchar("github_url", { length: 500 }),
-  imageUrl: varchar("image_url", { length: 500 }),
-  projectFileUrl: varchar("project_file_url", { length: 500 }),
-  additionalImageUrl: varchar("additional_image_url", { length: 500 }),
-  features: text("features").array(),
-  installationSteps: text("installation_steps"),
-  authorId: varchar("author_id").notNull().references(() => users.id),
-  views: integer("views").default(0).notNull(),
-  likes: integer("likes").default(0).notNull(),
-  isPublished: boolean("is_published").default(true).notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
+export const UserModel = mongoose.model<User>('User', userSchema);
+
+// Project interface and schema
+export interface Project extends Document {
+  _id: string;
+  title: string;
+  description: string;
+  fullDescription?: string;
+  category: string;
+  githubUrl?: string;
+  imageUrl?: string;
+  projectFileUrl?: string;
+  additionalImageUrl?: string;
+  features: string[];
+  installationSteps?: string;
+  authorId: string;
+  views: number;
+  likes: number;
+  isPublished: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const projectSchema = new Schema<Project>({
+  title: { type: String, required: true, maxlength: 255 },
+  description: { type: String, required: true },
+  fullDescription: String,
+  category: { type: String, required: true, maxlength: 50 },
+  githubUrl: { type: String, maxlength: 500 },
+  imageUrl: { type: String, maxlength: 500 },
+  projectFileUrl: { type: String, maxlength: 500 },
+  additionalImageUrl: { type: String, maxlength: 500 },
+  features: [String],
+  installationSteps: String,
+  authorId: { type: String, required: true },
+  views: { type: Number, default: 0 },
+  likes: { type: Number, default: 0 },
+  isPublished: { type: Boolean, default: true },
+}, {
+  timestamps: true,
 });
 
-export const projectLikes = pgTable("project_likes", {
-  id: serial("id").primaryKey(),
-  projectId: integer("project_id").notNull().references(() => projects.id),
-  userId: varchar("user_id").notNull().references(() => users.id),
-  createdAt: timestamp("created_at").defaultNow(),
+export const ProjectModel = mongoose.model<Project>('Project', projectSchema);
+
+// Project Like interface and schema
+export interface ProjectLike extends Document {
+  _id: string;
+  projectId: string;
+  userId: string;
+  createdAt: Date;
+}
+
+const projectLikeSchema = new Schema<ProjectLike>({
+  projectId: { type: String, required: true },
+  userId: { type: String, required: true },
+}, {
+  timestamps: true,
 });
 
-// Relations
-export const usersRelations = relations(users, ({ many }) => ({
-  projects: many(projects),
-  projectLikes: many(projectLikes),
-}));
+// Ensure unique combination of projectId and userId
+projectLikeSchema.index({ projectId: 1, userId: 1 }, { unique: true });
 
-export const projectsRelations = relations(projects, ({ one, many }) => ({
-  author: one(users, {
-    fields: [projects.authorId],
-    references: [users.id],
-  }),
-  likes: many(projectLikes),
-}));
+export const ProjectLikeModel = mongoose.model<ProjectLike>('ProjectLike', projectLikeSchema);
 
-export const projectLikesRelations = relations(projectLikes, ({ one }) => ({
-  project: one(projects, {
-    fields: [projectLikes.projectId],
-    references: [projects.id],
-  }),
-  user: one(users, {
-    fields: [projectLikes.userId],
-    references: [users.id],
-  }),
-}));
-
-// Schemas
-export const insertProjectSchema = createInsertSchema(projects).omit({
-  id: true,
-  views: true,
-  likes: true,
-  createdAt: true,
-  updatedAt: true,
+// Zod schemas for validation
+export const insertProjectSchema = z.object({
+  title: z.string().min(1).max(255),
+  description: z.string().min(1),
+  fullDescription: z.string().optional(),
+  category: z.string().min(1).max(50),
+  githubUrl: z.string().url().optional().or(z.literal("")),
+  imageUrl: z.string().url().optional().or(z.literal("")),
+  projectFileUrl: z.string().url().optional().or(z.literal("")),
+  additionalImageUrl: z.string().url().optional().or(z.literal("")),
+  features: z.array(z.string()).default([]),
+  installationSteps: z.string().optional(),
+  authorId: z.string(),
+  isPublished: z.boolean().default(true),
 });
 
-export const insertUserSchema = createInsertSchema(users).omit({
-  createdAt: true,
-  updatedAt: true,
+export const insertUserSchema = z.object({
+  id: z.string(),
+  email: z.string().email().optional(),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
+  profileImageUrl: z.string().url().optional(),
+  isAdmin: z.boolean().default(false),
 });
 
-export type UpsertUser = typeof users.$inferInsert;
-export type User = typeof users.$inferSelect;
-export type Project = typeof projects.$inferSelect;
+export type UpsertUser = z.infer<typeof insertUserSchema>;
 export type InsertProject = z.infer<typeof insertProjectSchema>;
-export type ProjectLike = typeof projectLikes.$inferSelect;

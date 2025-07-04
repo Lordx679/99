@@ -2,18 +2,16 @@ import passport from "passport";
 import { Strategy as GitHubStrategy } from "passport-github2";
 import session from "express-session";
 import type { Express, RequestHandler } from "express";
-import connectPg from "connect-pg-simple";
+import MongoStore from "connect-mongo";
 import { storage } from "./storage";
 
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
-  const pgStore = connectPg(session);
-  const sessionStore = new pgStore({
-    conString: process.env.DATABASE_URL,
-    createTableIfMissing: false,
-    ttl: sessionTtl,
-    tableName: "sessions",
+  const sessionStore = MongoStore.create({
+    mongoUrl: process.env.MONGODB_URI!,
+    ttl: sessionTtl / 1000, // convert to seconds
   });
+  
   return session({
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
@@ -50,8 +48,8 @@ export async function setupAuth(app: Express) {
           id: profile.id,
           email: email,
           firstName: profile.displayName?.split(' ')[0] || profile.username,
-          lastName: profile.displayName?.split(' ').slice(1).join(' ') || null,
-          profileImageUrl: profile.photos?.[0]?.value || null,
+          lastName: profile.displayName?.split(' ').slice(1).join(' ') || undefined,
+          profileImageUrl: profile.photos?.[0]?.value || undefined,
         });
         
         return done(null, user);

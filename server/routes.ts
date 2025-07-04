@@ -83,7 +83,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/projects/:id', async (req, res) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = req.params.id;
       const project = await storage.getProjectWithAuthor(id);
       
       if (!project) {
@@ -138,7 +138,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Admin access required" });
       }
 
-      const id = parseInt(req.params.id);
+      const id = req.params.id;
       const updates = insertProjectSchema.partial().parse(req.body);
       
       const project = await storage.updateProject(id, updates);
@@ -167,7 +167,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Admin access required" });
       }
 
-      const id = parseInt(req.params.id);
+      const id = req.params.id;
       const success = await storage.deleteProject(id);
       
       if (!success) {
@@ -185,7 +185,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/projects/:id/like', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const projectId = parseInt(req.params.id);
+      const projectId = req.params.id;
       
       const isLiked = await storage.isProjectLiked(projectId, userId);
       
@@ -206,7 +206,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/projects/:id/liked', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const projectId = parseInt(req.params.id);
+      const projectId = req.params.id;
       
       const isLiked = await storage.isProjectLiked(projectId, userId);
       res.json({ liked: isLiked });

@@ -1,255 +1,180 @@
 import {
-  users,
-  projects,
-  projectLikes,
+  UserModel,
+  ProjectModel,
+  ProjectLikeModel,
   type User,
   type UpsertUser,
   type Project,
   type InsertProject,
   type ProjectLike,
 } from "@shared/schema";
-import { db } from "./db";
-import { eq, desc, sql, ilike, and, count } from "drizzle-orm";
 
 // Interface for storage operations
 export interface IStorage {
   // User operations
-  // (IMPORTANT) these user operations are mandatory for Replit Auth.
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
   
   // Project operations
   createProject(project: InsertProject): Promise<Project>;
   getProjects(category?: string, search?: string, limit?: number, offset?: number): Promise<Project[]>;
-  getProject(id: number): Promise<Project | undefined>;
-  getProjectWithAuthor(id: number): Promise<(Project & { author: User }) | undefined>;
-  updateProject(id: number, updates: Partial<InsertProject>): Promise<Project | undefined>;
-  deleteProject(id: number): Promise<boolean>;
-  incrementProjectViews(id: number): Promise<void>;
+  getProject(id: string): Promise<Project | undefined>;
+  getProjectWithAuthor(id: string): Promise<(Project & { author: User }) | undefined>;
+  updateProject(id: string, updates: Partial<InsertProject>): Promise<Project | undefined>;
+  deleteProject(id: string): Promise<boolean>;
+  incrementProjectViews(id: string): Promise<void>;
   
   // Project likes
-  likeProject(projectId: number, userId: string): Promise<ProjectLike>;
-  unlikeProject(projectId: number, userId: string): Promise<boolean>;
-  isProjectLiked(projectId: number, userId: string): Promise<boolean>;
+  likeProject(projectId: string, userId: string): Promise<ProjectLike>;
+  unlikeProject(projectId: string, userId: string): Promise<boolean>;
+  isProjectLiked(projectId: string, userId: string): Promise<boolean>;
   
   // Admin operations
   isUserAdmin(userId: string): Promise<boolean>;
   getProjectStats(): Promise<{ totalProjects: number; totalUsers: number; totalViews: number }>;
 }
 
-export class DatabaseStorage implements IStorage {
+export class MongoStorage implements IStorage {
   // User operations
-  // (IMPORTANT) these user operations are mandatory for Replit Auth.
-
   async getUser(id: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user;
+    const user = await UserModel.findOne({ id }).exec();
+    return user || undefined;
   }
 
   async upsertUser(userData: UpsertUser): Promise<User> {
-    const [user] = await db
-      .insert(users)
-      .values(userData)
-      .onConflictDoUpdate({
-        target: users.id,
-        set: {
-          ...userData,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
+    const user = await UserModel.findOneAndUpdate(
+      { id: userData.id },
+      { ...userData, updatedAt: new Date() },
+      { upsert: true, new: true }
+    ).exec();
     return user;
   }
 
   // Project operations
   async createProject(project: InsertProject): Promise<Project> {
-    const [newProject] = await db
-      .insert(projects)
-      .values(project)
-      .returning();
+    const newProject = new ProjectModel(project);
+    await newProject.save();
     return newProject;
   }
 
   async getProjects(category?: string, search?: string, limit = 50, offset = 0): Promise<Project[]> {
-    // Build where conditions
-    const whereConditions = [eq(projects.isPublished, true)];
+    const query: any = { isPublished: true };
     
     if (category && category !== 'all') {
-      whereConditions.push(eq(projects.category, category));
+      query.category = category;
     }
     
     if (search) {
-      whereConditions.push(ilike(projects.title, `%${search}%`));
+      query.title = { $regex: search, $options: 'i' };
     }
 
-    const result = await db
-      .select({
-        id: projects.id,
-        title: projects.title,
-        description: projects.description,
-        fullDescription: projects.fullDescription,
-        category: projects.category,
-        githubUrl: projects.githubUrl,
-        imageUrl: projects.imageUrl,
-        projectFileUrl: projects.projectFileUrl,
-        additionalImageUrl: projects.additionalImageUrl,
-        features: projects.features,
-        installationSteps: projects.installationSteps,
-        authorId: projects.authorId,
-        views: projects.views,
-        likes: projects.likes,
-        isPublished: projects.isPublished,
-        createdAt: projects.createdAt,
-        updatedAt: projects.updatedAt,
-      })
-      .from(projects)
-      .where(and(...whereConditions))
-      .orderBy(desc(projects.createdAt))
+    const projects = await ProjectModel
+      .find(query)
+      .sort({ createdAt: -1 })
       .limit(limit)
-      .offset(offset);
+      .skip(offset)
+      .exec();
 
-    return result;
+    return projects;
   }
 
-  async getProject(id: number): Promise<Project | undefined> {
-    const [project] = await db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, id));
-    return project;
+  async getProject(id: string): Promise<Project | undefined> {
+    const project = await ProjectModel.findById(id).exec();
+    return project || undefined;
   }
 
-  async getProjectWithAuthor(id: number): Promise<(Project & { author: User }) | undefined> {
-    const [result] = await db
-      .select({
-        id: projects.id,
-        title: projects.title,
-        description: projects.description,
-        fullDescription: projects.fullDescription,
-        category: projects.category,
-        githubUrl: projects.githubUrl,
-        imageUrl: projects.imageUrl,
-        projectFileUrl: projects.projectFileUrl,
-        additionalImageUrl: projects.additionalImageUrl,
-        features: projects.features,
-        installationSteps: projects.installationSteps,
-        authorId: projects.authorId,
-        views: projects.views,
-        likes: projects.likes,
-        isPublished: projects.isPublished,
-        createdAt: projects.createdAt,
-        updatedAt: projects.updatedAt,
-        author: {
-          id: users.id,
-          email: users.email,
-          firstName: users.firstName,
-          lastName: users.lastName,
-          profileImageUrl: users.profileImageUrl,
-          isAdmin: users.isAdmin,
-          createdAt: users.createdAt,
-          updatedAt: users.updatedAt,
-        },
-      })
-      .from(projects)
-      .innerJoin(users, eq(projects.authorId, users.id))
-      .where(eq(projects.id, id));
+  async getProjectWithAuthor(id: string): Promise<(Project & { author: User }) | undefined> {
+    const project = await ProjectModel.findById(id).exec();
+    if (!project) return undefined;
 
-    return result as (Project & { author: User }) | undefined;
+    const author = await UserModel.findOne({ id: project.authorId }).exec();
+    if (!author) return undefined;
+
+    return { ...project.toObject(), author: author.toObject() } as Project & { author: User };
   }
 
-  async updateProject(id: number, updates: Partial<InsertProject>): Promise<Project | undefined> {
-    const [updated] = await db
-      .update(projects)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(projects.id, id))
-      .returning();
-    return updated;
+  async updateProject(id: string, updates: Partial<InsertProject>): Promise<Project | undefined> {
+    const project = await ProjectModel.findByIdAndUpdate(
+      id,
+      { ...updates, updatedAt: new Date() },
+      { new: true }
+    ).exec();
+    return project || undefined;
   }
 
-  async deleteProject(id: number): Promise<boolean> {
-    const result = await db
-      .delete(projects)
-      .where(eq(projects.id, id));
-    return (result.rowCount ?? 0) > 0;
+  async deleteProject(id: string): Promise<boolean> {
+    const result = await ProjectModel.findByIdAndDelete(id).exec();
+    return !!result;
   }
 
-  async incrementProjectViews(id: number): Promise<void> {
-    await db
-      .update(projects)
-      .set({ views: sql`${projects.views} + 1` })
-      .where(eq(projects.id, id));
+  async incrementProjectViews(id: string): Promise<void> {
+    await ProjectModel.findByIdAndUpdate(
+      id,
+      { $inc: { views: 1 } }
+    ).exec();
   }
 
   // Project likes
-  async likeProject(projectId: number, userId: string): Promise<ProjectLike> {
-    const [like] = await db
-      .insert(projectLikes)
-      .values({ projectId, userId })
-      .returning();
+  async likeProject(projectId: string, userId: string): Promise<ProjectLike> {
+    const like = new ProjectLikeModel({ projectId, userId });
+    await like.save();
 
     // Update project likes count
-    await db
-      .update(projects)
-      .set({ likes: sql`${projects.likes} + 1` })
-      .where(eq(projects.id, projectId));
+    await ProjectModel.findByIdAndUpdate(
+      projectId,
+      { $inc: { likes: 1 } }
+    ).exec();
 
     return like;
   }
 
-  async unlikeProject(projectId: number, userId: string): Promise<boolean> {
-    const result = await db
-      .delete(projectLikes)
-      .where(and(eq(projectLikes.projectId, projectId), eq(projectLikes.userId, userId)));
+  async unlikeProject(projectId: string, userId: string): Promise<boolean> {
+    const result = await ProjectLikeModel.findOneAndDelete({
+      projectId,
+      userId
+    }).exec();
 
-    if ((result.rowCount ?? 0) > 0) {
+    if (result) {
       // Update project likes count
-      await db
-        .update(projects)
-        .set({ likes: sql`${projects.likes} - 1` })
-        .where(eq(projects.id, projectId));
+      await ProjectModel.findByIdAndUpdate(
+        projectId,
+        { $inc: { likes: -1 } }
+      ).exec();
       return true;
     }
     return false;
   }
 
-  async isProjectLiked(projectId: number, userId: string): Promise<boolean> {
-    const [like] = await db
-      .select()
-      .from(projectLikes)
-      .where(and(eq(projectLikes.projectId, projectId), eq(projectLikes.userId, userId)));
+  async isProjectLiked(projectId: string, userId: string): Promise<boolean> {
+    const like = await ProjectLikeModel.findOne({
+      projectId,
+      userId
+    }).exec();
     return !!like;
   }
 
   // Admin operations
   async isUserAdmin(userId: string): Promise<boolean> {
-    const [user] = await db
-      .select({ isAdmin: users.isAdmin })
-      .from(users)
-      .where(eq(users.id, userId));
+    const user = await UserModel.findOne({ id: userId }).select('isAdmin').exec();
     return user?.isAdmin || false;
   }
 
   async getProjectStats(): Promise<{ totalProjects: number; totalUsers: number; totalViews: number }> {
-    const [projectCount] = await db
-      .select({ count: count() })
-      .from(projects)
-      .where(eq(projects.isPublished, true));
-
-    const [userCount] = await db
-      .select({ count: count() })
-      .from(users);
-
-    const [viewsSum] = await db
-      .select({ sum: sql<number>`sum(${projects.views})` })
-      .from(projects)
-      .where(eq(projects.isPublished, true));
+    const [projectCount, userCount, viewsSum] = await Promise.all([
+      ProjectModel.countDocuments({ isPublished: true }),
+      UserModel.countDocuments(),
+      ProjectModel.aggregate([
+        { $match: { isPublished: true } },
+        { $group: { _id: null, total: { $sum: '$views' } } }
+      ])
+    ]);
 
     return {
-      totalProjects: projectCount.count,
-      totalUsers: userCount.count,
-      totalViews: viewsSum.sum || 0,
+      totalProjects: projectCount,
+      totalUsers: userCount,
+      totalViews: viewsSum[0]?.total || 0,
     };
   }
 }
 
-export const storage = new DatabaseStorage();
+export const storage = new MongoStorage();
